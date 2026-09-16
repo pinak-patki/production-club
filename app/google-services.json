@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "496940963270",
+    "project_id": "productive-club-37cbf",
+    "storage_bucket": "productive-club-37cbf.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:496940963270:android:8248d5e2282aab50f78ec7",
+        "android_client_info": {
+          "package_name": "com.Pinak.ProductiveClub"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCLQ_Lfwt59RUzwdRS0-Eo8rXJQRBgMvaI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
