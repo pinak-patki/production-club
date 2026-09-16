@@ -86,22 +86,34 @@ fun HomeScreen(
     val hasUsagePermission = remember(context, refreshTrigger) {
         ScreenTimeHelper.hasUsagePermission(context)
     }
-    var screenTimeBreakdown by remember { mutableStateOf<ScreenTimeBreakdown?>(null) }
-
-    LaunchedEffect(hasUsagePermission, refreshTrigger) {
-        screenTimeBreakdown = if (hasUsagePermission) {
-            ScreenTimeHelper.getTodayScreenTimeBreakdownAsync(context, forceRefresh = true)
-        } else {
-            null
-        }
+    // Pre-populate with cached breakdown if available to eliminate blank loading states
+    var screenTimeBreakdown by remember {
+        mutableStateOf<ScreenTimeBreakdown?>(
+            if (ScreenTimeHelper.hasUsagePermission(context)) ScreenTimeHelper.currentCachedBreakdown else null
+        )
     }
 
-    // Auto-refresh screen time every 60 seconds while viewing HomeScreen
-    LaunchedEffect(hasUsagePermission) {
-        if (hasUsagePermission) {
-            while (true) {
-                kotlinx.coroutines.delay(60_000L)
+    // Unified screen time loading + periodic background refresh ticker
+    LaunchedEffect(hasUsagePermission, refreshTrigger) {
+        if (!hasUsagePermission) {
+            screenTimeBreakdown = null
+            return@LaunchedEffect
+        }
+        try {
+            screenTimeBreakdown = ScreenTimeHelper.getTodayScreenTimeBreakdownAsync(context, forceRefresh = true)
+        } catch (_: Exception) {
+            if (screenTimeBreakdown == null) {
+                screenTimeBreakdown = ScreenTimeBreakdown(0, emptyList())
+            }
+        }
+
+        // Auto-refresh screen time every 60 seconds while viewing HomeScreen
+        while (true) {
+            kotlinx.coroutines.delay(60_000L)
+            try {
                 screenTimeBreakdown = ScreenTimeHelper.getTodayScreenTimeBreakdownAsync(context, forceRefresh = true)
+            } catch (_: Exception) {
+                // Preserve existing breakdown on ticker error
             }
         }
     }
@@ -110,15 +122,18 @@ fun HomeScreen(
         FriendManager.isScreenTimeShared(context)
     }
 
-    LaunchedEffect(screenTimeBreakdown, isSharingScreenTime) {
-        screenTimeBreakdown?.let { breakdown ->
-            if (isSharingScreenTime) {
-                FriendManager.syncMyScreenTime(context, breakdown.totalMinutes)
-            }
+    // Throttled Firestore sync: only write when totalMinutes actually changes
+    var lastSyncedMinutes by remember { mutableIntStateOf(-1) }
+    LaunchedEffect(screenTimeBreakdown?.totalMinutes, isSharingScreenTime) {
+        val mins = screenTimeBreakdown?.totalMinutes
+        if (mins != null && isSharingScreenTime && mins != lastSyncedMinutes) {
+            lastSyncedMinutes = mins
+            FriendManager.syncMyScreenTime(context, mins)
         }
     }
 
-    val todayStr = remember {
+    // Date updates reactively upon resume
+    val todayStr = remember(refreshTrigger) {
         LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, MMMM d"))
     }
 
@@ -194,7 +209,9 @@ fun HomeScreen(
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
-                        modifier = Modifier.padding(end = 12.dp)
+                        modifier = Modifier
+                            .padding(end = 12.dp)
+                            .clickable { onNavigateToFriends() }
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -328,7 +345,7 @@ fun HomeScreen(
                                     ) {
                                         Checkbox(
                                             checked = task.isCompleted,
-                                            onCheckedChange = { taskViewModel.toggleComplete(task) },
+                                            onCheckedChange = null,
                                             modifier = Modifier.size(24.dp)
                                         )
                                         Spacer(modifier = Modifier.width(10.dp))
@@ -416,47 +433,50 @@ fun HomeScreen(
                         }
                     }
 
-                    if (summary != null && summary!!.text.isNotBlank()) {
-                        // Structured Quote Box for Summary Text
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = MaterialTheme.colorScheme.surface,
-                            shadowElevation = 1.dp,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(14.dp),
-                                verticalAlignment = Alignment.Top
+                    val currentSummary = summary
+                    if (currentSummary != null && (currentSummary.text.isNotBlank() || currentSummary.photoUrls.isNotEmpty())) {
+                        // Structured Quote Box for Summary Text (if present)
+                        if (currentSummary.text.isNotBlank()) {
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = MaterialTheme.colorScheme.surface,
+                                shadowElevation = 1.dp,
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Icon(
-                                    Icons.Default.FormatQuote,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(22.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = summary!!.text,
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        lineHeight = 22.sp,
-                                        fontSize = 15.sp
-                                    ),
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
+                                Row(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalAlignment = Alignment.Top
+                                ) {
+                                    Icon(
+                                        Icons.Default.FormatQuote,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = currentSummary.text,
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            lineHeight = 22.sp,
+                                            fontSize = 15.sp
+                                        ),
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
                             }
                         }
 
                         // Uploaded Proofs Carousel
-                        if (summary!!.photoUrls.isNotEmpty()) {
+                        if (currentSummary.photoUrls.isNotEmpty()) {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(
-                                    "Verified Proofs (${summary!!.photoUrls.size})",
+                                    "Verified Proofs (${currentSummary.photoUrls.size})",
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.Bold
                                 )
 
                                 LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    items(summary!!.photoUrls) { photoUrl ->
+                                    items(currentSummary.photoUrls) { photoUrl ->
                                         Surface(
                                             shape = RoundedCornerShape(12.dp),
                                             shadowElevation = 2.dp,
@@ -580,7 +600,13 @@ fun HomeScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Button(
-                            onClick = { ScreenTimeHelper.openUsageSettings(context) },
+                            onClick = {
+                                try {
+                                    ScreenTimeHelper.openUsageSettings(context)
+                                } catch (_: Exception) {
+                                    Toast.makeText(context, "Could not open usage access settings", Toast.LENGTH_SHORT).show()
+                                }
+                            },
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp)
                         ) {
@@ -721,11 +747,11 @@ fun HomeScreen(
                                             .background(MaterialTheme.colorScheme.primaryContainer),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Text(text = status.friend.avatarEmoji, fontSize = 22.sp)
+                                        Text(text = status.friend.avatarEmoji.ifBlank { "🚀" }, fontSize = 22.sp)
                                     }
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Text(
-                                        text = status.friend.displayName,
+                                        text = status.friend.displayName.ifBlank { "Friend" },
                                         style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = FontWeight.SemiBold,
                                         maxLines = 1,
@@ -751,7 +777,7 @@ fun HomeScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(40.dp))
         }
     }
 }

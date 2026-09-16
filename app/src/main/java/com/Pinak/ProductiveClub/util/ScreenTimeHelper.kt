@@ -115,6 +115,8 @@ object ScreenTimeHelper {
     @Volatile
     private var cachedBreakdown: ScreenTimeBreakdown? = null
 
+    val currentCachedBreakdown: ScreenTimeBreakdown? get() = cachedBreakdown
+
     @Volatile
     private var lastQueryTimestamp: Long = 0L
 
@@ -148,10 +150,19 @@ object ScreenTimeHelper {
     }
 
     fun openUsageSettings(context: Context) {
-        val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        try {
+            val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+        } catch (_: Exception) {
+            try {
+                val fallback = Intent(Settings.ACTION_SETTINGS).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(fallback)
+            } catch (_: Exception) {}
         }
-        context.startActivity(intent)
     }
 
     /**

@@ -176,12 +176,13 @@ private fun AppUsageRow(app: AppUsageInfo) {
         Spacer(modifier = Modifier.width(8.dp))
 
         // Percentage Badge
+        val pctText = if (app.usageMinutes > 0 && app.percentage < 1f) "<1%" else "${app.percentage.toInt()}%"
         Surface(
             shape = RoundedCornerShape(6.dp),
             color = app.color.copy(alpha = 0.15f)
         ) {
             Text(
-                text = "${app.percentage.toInt()}%",
+                text = pctText,
                 style = MaterialTheme.typography.labelSmall,
                 color = app.color,
                 fontWeight = FontWeight.Bold,
